@@ -1,4 +1,4 @@
--- Delta Executor - Menu Actions Compact (Rejoin Fixé + Sauvegarde Position/Keybinds)
+-- Delta Executor - Menu Actions Compact (Rejoin Fixé - Anti Erreur 773 + Sauvegarde)
 
 local Players = game:GetService("Players")
 local TeleportService = game:GetService("TeleportService")
@@ -8,6 +8,7 @@ local HttpService = game:GetService("HttpService")
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 
+-- ==================== CONFIG & SAUVEGARDE ====================
 local saveFile = "DeltaActions_Config.json"
 
 local config = {
@@ -15,18 +16,34 @@ local config = {
     Keybinds = {Rejoin = nil, Kick = nil}
 }
 
--- Charger config
+local function saveConfig()
+    config.Position = {
+        XScale = MainFrame.Position.X.Scale,
+        XOffset = MainFrame.Position.X.Offset,
+        YScale = MainFrame.Position.Y.Scale,
+        YOffset = MainFrame.Position.Y.Offset
+    }
+    config.Keybinds = {
+        Rejoin = rejoinKey and rejoinKey.Name or nil,
+        Kick = kickKey and kickKey.Name or nil
+    }
+    pcall(function()
+        writefile(saveFile, HttpService:JSONEncode(config))
+    end)
+end
+
 local function loadConfig()
     if isfile(saveFile) then
-        local success, data = pcall(function()
+        local success, decoded = pcall(function()
             return HttpService:JSONDecode(readfile(saveFile))
         end)
-        if success and data then
-            config = data
+        if success then
+            config = decoded
         end
     end
 end
 
+-- Charger la config au démarrage
 loadConfig()
 
 -- ==================== GUI ====================
@@ -68,7 +85,7 @@ Title.TextXAlignment = Enum.TextXAlignment.Left
 Title.Font = Enum.Font.GothamBold
 Title.Parent = MainFrame
 
--- Keybinds
+-- Variables Keybinds
 local rejoinKey = config.Keybinds.Rejoin and Enum.KeyCode[config.Keybinds.Rejoin] or nil
 local kickKey = config.Keybinds.Kick and Enum.KeyCode[config.Keybinds.Kick] or nil
 local bindingFor = nil
@@ -78,7 +95,7 @@ local function updateButtonText(btn, baseText, key)
     btn.Text = " " .. baseText .. keyName
 end
 
--- Boutons
+-- Bouton Rejoin
 local RejoinBtn = Instance.new("TextButton")
 RejoinBtn.Size = UDim2.new(0.92, 0, 0, 28)
 RejoinBtn.Position = UDim2.new(0.04, 0, 0, 30)
@@ -93,6 +110,7 @@ local Corner1 = Instance.new("UICorner")
 Corner1.CornerRadius = UDim.new(0, 7)
 Corner1.Parent = RejoinBtn
 
+-- Bouton Kick Self
 local KickBtn = Instance.new("TextButton")
 KickBtn.Size = UDim2.new(0.92, 0, 0, 28)
 KickBtn.Position = UDim2.new(0.04, 0, 0, 62)
@@ -107,43 +125,24 @@ local Corner2 = Instance.new("UICorner")
 Corner2.CornerRadius = UDim.new(0, 7)
 Corner2.Parent = KickBtn
 
+-- Mise à jour initiale des textes
 updateButtonText(RejoinBtn, "Rejoin", rejoinKey)
 updateButtonText(KickBtn, "Kick Self", kickKey)
 
--- ==================== SAUVEGARDE (maintenant après création du Frame) ====================
-local function saveConfig()
-    if not MainFrame then return end
-    config.Position = {
-        XScale = MainFrame.Position.X.Scale,
-        XOffset = MainFrame.Position.X.Offset,
-        YScale = MainFrame.Position.Y.Scale,
-        YOffset = MainFrame.Position.Y.Offset
-    }
-    config.Keybinds = {
-        Rejoin = rejoinKey and rejoinKey.Name or nil,
-        Kick = kickKey and kickKey.Name or nil
-    }
-    pcall(function()
-        writefile(saveFile, HttpService:JSONEncode(config))
-    end)
-end
-
--- ==================== ACTIONS ====================
+-- ==================== FONCTIONS ACTIONS ====================
 local function performRejoin()
     RejoinBtn.Text = "Rejoin..."
     task.wait(0.3)
     pcall(function()
-        TeleportService:Teleport(game.PlaceId, player)
+        TeleportService:Teleport(game.PlaceId)
     end)
-    task.wait(1)
-    updateButtonText(RejoinBtn, "Rejoin", rejoinKey) -- reset texte
 end
 
 local function performKick()
     game:Shutdown()
 end
 
--- ==================== CLIC DROIT + KEYBINDS ====================
+-- ==================== KEYBINDS & CLIC DROIT ====================
 RejoinBtn.InputBegan:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton2 then
         bindingFor = "Rejoin"
@@ -161,6 +160,7 @@ end)
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if gameProcessed then return end
 
+    -- Mode binding
     if bindingFor then
         if input.UserInputType == Enum.UserInputType.Keyboard then
             if bindingFor == "Rejoin" then
@@ -176,15 +176,15 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
         return
     end
 
-    -- Keybinds actives
-    if rejoinKey and input.KeyCode == rejoinKey then
+    -- Activation des keybinds
+    if input.KeyCode == rejoinKey then
         performRejoin()
-    elseif kickKey and input.KeyCode == kickKey then
+    elseif input.KeyCode == kickKey then
         performKick()
     end
 end)
 
--- ==================== DRAG ====================
+-- ==================== DRAG & SAUVEGARDE POSITION ====================
 local dragging = false
 local dragStart, startPos
 
@@ -213,21 +213,19 @@ Title.InputBegan:Connect(function(input)
 end)
 
 UserInputService.InputChanged:Connect(function(input)
-    if (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) and dragging then
+    if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
         updateDrag(input)
     end
 end)
 
 UserInputService.InputEnded:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-        if dragging then
-            dragging = false
-            saveConfig()
-        end
+        dragging = false
+        saveConfig() -- Sauvegarde la position quand on relâche
     end
 end)
 
--- Toggle Insert
+-- Toggle avec INSERT
 UserInputService.InputBegan:Connect(function(input, gp)
     if gp then return end
     if input.KeyCode == Enum.KeyCode.Insert then
@@ -235,4 +233,4 @@ UserInputService.InputBegan:Connect(function(input, gp)
     end
 end)
 
-print("✅ Delta Actions chargé avec succès - Tout corrigé")
+print("✅ Delta Actions chargé avec succès - Position + Keybinds sauvegardés")
