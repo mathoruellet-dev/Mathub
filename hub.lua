@@ -1,14 +1,37 @@
--- Delta Executor - Menu Actions Compact (Rejoin Fixé - Anti Erreur 773)
+-- Delta Executor - Menu Actions Compact (Rejoin Fixé + Sauvegarde Position/Keybinds)
 
 local Players = game:GetService("Players")
 local TeleportService = game:GetService("TeleportService")
 local UserInputService = game:GetService("UserInputService")
+local HttpService = game:GetService("HttpService")
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 
+local saveFile = "DeltaActions_Config.json"
+
+local config = {
+    Position = {XScale = 1, XOffset = -160, YScale = 0, YOffset = 10},
+    Keybinds = {Rejoin = nil, Kick = nil}
+}
+
+-- Charger config
+local function loadConfig()
+    if isfile(saveFile) then
+        local success, data = pcall(function()
+            return HttpService:JSONDecode(readfile(saveFile))
+        end)
+        if success and data then
+            config = data
+        end
+    end
+end
+
+loadConfig()
+
+-- ==================== GUI ====================
 if playerGui:FindFirstChild("DeltaActions") then
-playerGui.DeltaActions:Destroy()
+    playerGui.DeltaActions:Destroy()
 end
 
 local ScreenGui = Instance.new("ScreenGui")
@@ -16,11 +39,10 @@ ScreenGui.Name = "DeltaActions"
 ScreenGui.ResetOnSpawn = false
 ScreenGui.Parent = playerGui
 
--- Frame Ultra Compacte
 local MainFrame = Instance.new("Frame")
 MainFrame.Name = "Main"
 MainFrame.Size = UDim2.new(0, 145, 0, 95)
-MainFrame.Position = UDim2.new(1, -160, 0, 10)
+MainFrame.Position = UDim2.new(config.Position.XScale, config.Position.XOffset, config.Position.YScale, config.Position.YOffset)
 MainFrame.BackgroundColor3 = Color3.fromRGB(18, 18, 24)
 MainFrame.BorderSizePixel = 0
 MainFrame.Parent = ScreenGui
@@ -46,12 +68,21 @@ Title.TextXAlignment = Enum.TextXAlignment.Left
 Title.Font = Enum.Font.GothamBold
 Title.Parent = MainFrame
 
--- Bouton Rejoin
+-- Keybinds
+local rejoinKey = config.Keybinds.Rejoin and Enum.KeyCode[config.Keybinds.Rejoin] or nil
+local kickKey = config.Keybinds.Kick and Enum.KeyCode[config.Keybinds.Kick] or nil
+local bindingFor = nil
+
+local function updateButtonText(btn, baseText, key)
+    local keyName = key and (" [" .. key.Name .. "]") or ""
+    btn.Text = " " .. baseText .. keyName
+end
+
+-- Boutons
 local RejoinBtn = Instance.new("TextButton")
 RejoinBtn.Size = UDim2.new(0.92, 0, 0, 28)
 RejoinBtn.Position = UDim2.new(0.04, 0, 0, 30)
 RejoinBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 65)
-RejoinBtn.Text = " Rejoin"
 RejoinBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 RejoinBtn.TextScaled = true
 RejoinBtn.TextXAlignment = Enum.TextXAlignment.Left
@@ -62,12 +93,10 @@ local Corner1 = Instance.new("UICorner")
 Corner1.CornerRadius = UDim.new(0, 7)
 Corner1.Parent = RejoinBtn
 
--- Bouton Kick Self
 local KickBtn = Instance.new("TextButton")
 KickBtn.Size = UDim2.new(0.92, 0, 0, 28)
 KickBtn.Position = UDim2.new(0.04, 0, 0, 62)
 KickBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 65)
-KickBtn.Text = " Kick Self"
 KickBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 KickBtn.TextScaled = true
 KickBtn.TextXAlignment = Enum.TextXAlignment.Left
@@ -78,69 +107,132 @@ local Corner2 = Instance.new("UICorner")
 Corner2.CornerRadius = UDim.new(0, 7)
 Corner2.Parent = KickBtn
 
--- ==================== REJOIN AMÉLIORÉ (Anti 773) ====================
-RejoinBtn.MouseButton1Click:Connect(function()
-RejoinBtn.Text = "Rejoin..."
+updateButtonText(RejoinBtn, "Rejoin", rejoinKey)
+updateButtonText(KickBtn, "Kick Self", kickKey)
 
--- Méthode la plus fiable contre l'erreur 773
-task.wait(0.3) -- Petit délai pour contourner la restriction
+-- ==================== SAUVEGARDE (maintenant après création du Frame) ====================
+local function saveConfig()
+    if not MainFrame then return end
+    config.Position = {
+        XScale = MainFrame.Position.X.Scale,
+        XOffset = MainFrame.Position.X.Offset,
+        YScale = MainFrame.Position.Y.Scale,
+        YOffset = MainFrame.Position.Y.Offset
+    }
+    config.Keybinds = {
+        Rejoin = rejoinKey and rejoinKey.Name or nil,
+        Kick = kickKey and kickKey.Name or nil
+    }
+    pcall(function()
+        writefile(saveFile, HttpService:JSONEncode(config))
+    end)
+end
 
-pcall(function()
-TeleportService:Teleport(game.PlaceId) -- Version simple (la plus stable)
+-- ==================== ACTIONS ====================
+local function performRejoin()
+    RejoinBtn.Text = "Rejoin..."
+    task.wait(0.3)
+    pcall(function()
+        TeleportService:Teleport(game.PlaceId, player)
+    end)
+    task.wait(1)
+    updateButtonText(RejoinBtn, "Rejoin", rejoinKey) -- reset texte
+end
+
+local function performKick()
+    game:Shutdown()
+end
+
+-- ==================== CLIC DROIT + KEYBINDS ====================
+RejoinBtn.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton2 then
+        bindingFor = "Rejoin"
+        RejoinBtn.Text = " Appuie sur une touche..."
+    end
 end)
+
+KickBtn.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton2 then
+        bindingFor = "Kick"
+        KickBtn.Text = " Appuie sur une touche..."
+    end
 end)
 
--- Kick Self
-KickBtn.MouseButton1Click:Connect(function()
-game:Shutdown()
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
+
+    if bindingFor then
+        if input.UserInputType == Enum.UserInputType.Keyboard then
+            if bindingFor == "Rejoin" then
+                rejoinKey = input.KeyCode
+                updateButtonText(RejoinBtn, "Rejoin", rejoinKey)
+            elseif bindingFor == "Kick" then
+                kickKey = input.KeyCode
+                updateButtonText(KickBtn, "Kick Self", kickKey)
+            end
+            bindingFor = nil
+            saveConfig()
+        end
+        return
+    end
+
+    -- Keybinds actives
+    if rejoinKey and input.KeyCode == rejoinKey then
+        performRejoin()
+    elseif kickKey and input.KeyCode == kickKey then
+        performKick()
+    end
 end)
 
--- Draggable
+-- ==================== DRAG ====================
 local dragging = false
 local dragStart, startPos
 
 local function startDrag(input)
-dragging = true
-dragStart = input.Position
-startPos = MainFrame.Position
+    dragging = true
+    dragStart = input.Position
+    startPos = MainFrame.Position
 end
 
 local function updateDrag(input)
-if dragging then
-local delta = input.Position - dragStart
-MainFrame.Position = UDim2.new(
-startPos.X.Scale,
-startPos.X.Offset + delta.X,
-startPos.Y.Scale,
-startPos.Y.Offset + delta.Y
-)
-end
+    if dragging then
+        local delta = input.Position - dragStart
+        MainFrame.Position = UDim2.new(
+            startPos.X.Scale,
+            startPos.X.Offset + delta.X,
+            startPos.Y.Scale,
+            startPos.Y.Offset + delta.Y
+        )
+    end
 end
 
 Title.InputBegan:Connect(function(input)
-if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-startDrag(input)
-end
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        startDrag(input)
+    end
 end)
 
 UserInputService.InputChanged:Connect(function(input)
-if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
-updateDrag(input)
-end
+    if (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) and dragging then
+        updateDrag(input)
+    end
 end)
 
 UserInputService.InputEnded:Connect(function(input)
-if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-dragging = false
-end
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        if dragging then
+            dragging = false
+            saveConfig()
+        end
+    end
 end)
 
--- Toggle INSERT
+-- Toggle Insert
 UserInputService.InputBegan:Connect(function(input, gp)
-if gp then return end
-if input.KeyCode == Enum.KeyCode.Insert then
-ScreenGui.Enabled = not ScreenGui.Enabled
-end
+    if gp then return end
+    if input.KeyCode == Enum.KeyCode.Insert then
+        ScreenGui.Enabled = not ScreenGui.Enabled
+    end
 end)
 
-print("✅ Menu chargé - Rejoin corrigé (Anti 773)")
+print("✅ Delta Actions chargé avec succès - Tout corrigé")
